@@ -1,3 +1,4 @@
+from operator import ge
 import pygame
 import numpy as np
 import matplotlib.pyplot as plt
@@ -9,6 +10,21 @@ pygame.init()
 #pygame.display.set_icon(pygame.image.load('icon.png'))
 width, height = 600, 600
 win = pygame.display.set_mode((width, height))
+
+C = 10
+gen_angle = lambda: np.random.random()*2*np.pi
+polar_to_plain = lambda a, R: [np.cos(a)*R, np.sin(a)*R]
+r = 1
+
+def gen_circle_boundaries(gamma, angular_radius, R=1, r=1, n=20):
+	thetas = np.linspace(gamma-angular_radius, gamma+angular_radius+2*angular_radius/n, n)
+	cos = np.cos(thetas)
+	sin = np.sin(thetas)
+	x, y = np.cos(gamma)*R, np.sin(gamma)*R
+	closer = ((x*cos+y*sin)+np.sqrt(r**2-(x*sin-y*cos)**2))
+	further = ((x*cos+y*sin)-np.sqrt(r**2-(x*sin-y*cos)**2))
+	return closer, further, thetas
+
 
 class ControlPanel:
 	def __init__(self, x, y, w, h):
@@ -23,6 +39,7 @@ class ControlPanel:
 		self.x, self.y = x, y
 		self.w, self.h = w, h
 		self.max_val, self.min_val = 10, -10
+
 		fig, ax = plt.subplots(1, 1, figsize=(10, 10))
 		min_ax, max_ax = -10, 10
 		p = np.linspace(min_ax, max_ax, 20)
@@ -39,19 +56,36 @@ class ControlPanel:
 		angles = np.linspace(0, np.pi*2, 30)
 		self.circle_radius = 1
 		self.circle_points = np.array([np.cos(angles), np.sin(angles)])
+	
+		self.alpha, self.beta = gen_angle(), gen_angle()
+		self.C = (np.random.random()/1.25+0.1)*C
+		self.R = (np.random.random()/1.25+0.1)*C
+
 		self.star = self.ax.scatter(0, 0)
-		self.regenerate_circle()
-		self.regenerate_star()
+
+		self.generate_circle()
+		self.generate_star()
 		self.update_colors()
 
-	def regenerate_circle(self):
-		a = (np.random.random()-0.5)*2*np.pi
-		self.circle_center = np.array([np.cos(a), np.sin(a)])*(self.max_val-self.min_val)/2
+	def generate_circle(self):
+		self.alpha = gen_angle()
 
-	def regenerate_star(self):
+	def generate_star(self):
 		self.star.remove()
-		self.star_point = (np.random.random((2,))-0.5)*10
-		self.star = self.ax.scatter(self.star_point[0], self.star_point[1], s=500, marker='*')
+		self.beta = gen_angle()
+		x, y = polar_to_plain(self.beta, self.R)
+		self.star = self.ax.scatter(x, y, s=500, marker='*')
+
+	def autosolve(self):
+		angular_radius = np.arcsin(r/self.R)
+		closer, further, thetas = gen_circle_boundaries(self.beta, angular_radius, self.R, r)
+		angles = self.alpha-thetas-2*np.pi
+
+		matrices = np.array([[np.cos(thetas), -np.sin(thetas)], [np.sin(thetas), np.cos(thetas)]])
+		matrices_c = matrices
+		matrices_f = matrices
+
+
 
 	def draw(self, win):
 		pygame.draw.rect(win, self.top_left_color, (self.x, self.y, self.w, self.h))
@@ -108,32 +142,31 @@ class ControlPanel:
 		matrix = np.array([[self.top_left_value, self.top_right_value], [self.bottom_left_value, self.bottom_right_value]])/(self.max_val-self.min_val)*2
 		xt, yt = matrix.dot(np.array([self.xx, self.yy]))
 		collection = self.ax.scatter(xt, yt, c=self.c, cmap=cm.plasma, s=50, marker="s")
-		#circle = self.ax.scatter(*matrix.dot(((self.circle_points*self.circle_radius).T+self.circle_center).T), lw=0.5)
-		circle = self.ax.scatter(*(matrix.dot(self.circle_center).T+((self.circle_points*self.circle_radius).T)).T, marker='x')
+		circle_center = np.array(polar_to_plain(self.alpha, self.C))
+		circle = self.ax.scatter(*(matrix.dot(circle_center).T+((self.circle_points*self.circle_radius).T)).T, marker='x')
 		self.fig.canvas.draw()
-		img = np.fromstring(self.fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-		img  = img.reshape(self.fig.canvas.get_width_height()[::-1] + (3,))
+		self.fig.savefig("figure.jpg")
+		img = plt.imread("figure.jpg")
 		collection.remove()
 		circle.remove()
-		return img, matrix.dot(self.circle_center)
+		return img, matrix.dot(circle_center)
 
 	def update_canvas(self, win):
 		img, (Cx, Cy) = self.get_canvas()
 		surface = pygame.surfarray.make_surface(img)
 		surface = pygame.transform.scale(surface, (width, height))  # Scaled a bit.
 		win.blit(surface, (0, 0))
-		x, y = self.star_point
+		x, y = polar_to_plain(self.beta, self.R)
 		print(Cx, x, Cy, y)
 		if (Cx-x)**2+(Cy-y)**2 < self.circle_radius**2:
-			self.regenerate_star()
-			self.regenerate_circle()
+			self.generate_star()
+			self.generate_circle()
 
 cp = ControlPanel(50, 50, 20, 20)
 cp.update_canvas(win)
 while True:
 	cp.update(win)
 	cp.draw(win)
-	#print(cp.top_left_value, cp.top_right_value, cp.bottom_left_value, cp.bottom_right_value)
 
 	pygame.display.update()
 	pygame.event.pump()
